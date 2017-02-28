@@ -36,7 +36,7 @@ if TEST:
 else:
     iterations=3
     max_network=2
-    for id in range(1,max_network):
+    for id in range(1,max_network+1):
         total_error=0
         name='network'+str(id)
         networkFile='networks/network'+str(id)+'.txt'
