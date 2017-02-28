@@ -39,10 +39,11 @@ else:
     for id in range(1,max_network):
         total_error=0
         name='network'+str(id)
+        networkFile='networks/network'+str(id)+'.txt'
         if os.path.isfile(name+"_data.txt"):
             os.remove(name+"_data.txt")
         for _ in range(iterations):
-            network1=Network(train_data.shape[1],train_data.shape[2],train_labels.shape[1],name,networkFile='networks/network'+str(id)+'.txt')
+            network1=Network(train_data.shape[1],train_data.shape[2],train_labels.shape[1],name,networkFile=networkFile)
             network1.trainNetwork(train_data,train_labels,valid_data,valid_labels,batchSize=10,epochs=100,learningRate=0.01,penalty=0.01)
             error=network1.testNetwork(test_data,test_labels)
             f=open(name+'_data.txt','a')
