@@ -10,8 +10,10 @@ import pickle
 import batch_functions
 import os
 import shapeData
+from os.path import expanduser
 
-MODEL_PATH='/home/akatosh/DATASETS'
+home = expanduser("~")
+MODEL_PATH=home+'/DATASETS'
 DATASET='MULTITUDE'
 
 MODEL_OBJECT='BREATHER'
