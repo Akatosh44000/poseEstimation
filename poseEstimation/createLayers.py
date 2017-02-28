@@ -15,7 +15,7 @@ def importFromFile(fileName):
     return layers
     
 def createLayers(fileName,net):
-    layers=importFromFile('networks/network1.txt')
+    layers=importFromFile(fileName)
     print("CREATING NETWORK ARCHITECTURE ...")
     print("INPUT --> ",end='')
     for layer in layers:
