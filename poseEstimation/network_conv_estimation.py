@@ -67,7 +67,7 @@ class Network():
             train_err = 0
             train_batches = 0
             valid_error=0
-            for batch in batch_functions.iterate_minibatches(train_data, train_labels, 20, shuffle=True):
+            for batch in batch_functions.iterate_minibatches(train_data, train_labels, batchSize, shuffle=True):
                 inputs, targets = batch
                 inputs=batch_functions.normalize_batch(inputs)
                 train_err += self.f_train(inputs, targets, learningRate)
