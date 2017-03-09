@@ -18,13 +18,15 @@ def createLayers(fileName,net):
     layers=importFromFile(fileName)
     print("CREATING NETWORK ARCHITECTURE ...")
     print("INPUT --> ",end='')
+    output=[]
     for layer in layers:
         print(layer,end='')
         print(" --> ",end='')
         net=createLayer(layer[0],net,layer[1])
+        output.append(net)
     print("OUTPUT")
     print("ARCHITECTURE CREATED.")
-    return net
+    return [output,net]
 
 def createLayer(layer_type,previous_layer,params):
     if layer_type=='CONV':

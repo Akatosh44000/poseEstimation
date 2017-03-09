@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from os import listdir
+from os.path import isfile, join
 
 def formatData(file):
     f=open(file,'r')
@@ -23,6 +25,33 @@ def formatData(file):
     f.write(str(np.mean(error))+"\n")
     f.close()
 
+def printDatas(filename):
+    onlyfiles = [f for f in listdir(filename) if isfile(join(filename, f))]
+    validation=[]
+    fig = plt.figure()
+    ax1 = fig.add_subplot(111)
+    for file in onlyfiles:
+        print(file)
+        if(len(file.split('network'))>1):
+            print(file.split('.txt')[0]+'_data_export.txt')
+            f=open(file.split('.txt')[0]+'_data_export.txt','r')
+            
+            content=f.readlines()
+            epochs=[]
+            loss=[]
+            y=[]
+            for cont in content:
+                if cont.find(';')>0:
+                    cont=cont.split('\n')[0]
+                    cont=cont.split(';')
+                    epochs.append(cont[0])
+                    loss.append(cont[1])
+                    y.append(cont[2])
+            ax1.scatter(epochs, y, s=10,  marker="s", label=file.split('_data_export.txt')[0])
+    plt.legend(loc='upper right');
+
+    plt.show()
+
 def printData(filename):
     f=open(filename,'r')
     content=f.readlines()
@@ -40,4 +69,5 @@ def printData(filename):
     print(validation)
     plt.plot(epochs,validation,'ro')
     plt.show()
-    
+
+printDatas('networks')   
