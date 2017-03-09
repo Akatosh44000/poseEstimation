@@ -18,55 +18,40 @@ sys.setrecursionlimit(50000)
       
 class Network():
     
-    def __init__(self,dimChannels,dimFeatures,dimOutput,name="default_network",networkFile='networks/network1.txt',paramsImport=False):
+    def __init__(self,dimChannels,dimFeatures,dimOutput,name="default_network",networkFile='networks/network1.txt'):
         self.name=name
         self.dimChannels=dimChannels
         self.dimFeatures=dimFeatures
         self.dimOutput=dimOutput
-        self.loss=0
         self._observers = []
 
         input_var = T.tensor4('inputs')
         target_var = T.matrix('targets')
         learning_rate=T.scalar('learning rate')
         regularization_weight=T.scalar('learning rate')
-        indexLayer=T.scalar('indexLayer')
-        
+                
         l_input = lasagne.layers.InputLayer(shape=(None, dimChannels, dimFeatures, dimFeatures),input_var=input_var)
-        layersImp=createLayers.createLayers(networkFile,l_input)
-        core=layersImp[1]
-        layers=layersImp[0]
-        
-        print("CREATING FUNCTIONS...")
+        core=createLayers.createLayers(networkFile,l_input)
         l_output = lasagne.layers.DenseLayer(core,num_units=dimOutput,nonlinearity=lasagne.nonlinearities.tanh,W=lasagne.init.Orthogonal())
-        layers.append(l_output)
-        
-        if paramsImport:
-            lasagne.layers.set_all_param_values(l_output, paramsImport)
-        
+            
+        print("CREATING FUNCTIONS...")
         prediction = lasagne.layers.get_output(l_output)
-        loss0 = np.abs(np.dot(prediction.T, target_var.T)-1)
-        loss1 = lasagne.objectives.squared_error(prediction,target_var)
+        cost = lasagne.objectives.squared_error(prediction,target_var)
         l2_penalty = lasagne.regularization.regularize_network_params(l_output, lasagne.regularization.l2)
-        loss = loss1.mean()+regularization_weight*l2_penalty
+        loss = cost.mean()+regularization_weight*l2_penalty
         
         params = lasagne.layers.get_all_params(l_output, trainable=True)
         updates = lasagne.updates.nesterov_momentum(loss, params, learning_rate=learning_rate, momentum=0.9)
 
         test_prediction = lasagne.layers.get_output(l_output, deterministic=True)
-        test_loss = lasagne.objectives.squared_error(test_prediction,target_var)
-        test_loss=test_loss.mean()
+        test_cost = lasagne.objectives.squared_error(test_prediction,target_var)
+        test_loss=test_cost.mean()
         
         self.last_layer=l_output
         self.f_train=theano.function([input_var, target_var,learning_rate,regularization_weight], loss, updates=updates)
         self.f_predict=theano.function([input_var], test_prediction)
         self.f_accuracy=theano.function([input_var,target_var],test_loss)
-        self.f_export_params=theano.function([],params)
-        self.f_see=theano.function([input_var,target_var],loss0)
-        self.outputFunctions=[];
-        for i in range(len(layers)):
-            self.outputFunctions.append(theano.function([input_var],lasagne.layers.get_output(layers[i])))
-        
+
         print("FUNCTIONS CREATED.")
         
     def createTrainingThread(self,train_data,train_labels,valid_data,valid_labels,trigger,
@@ -82,14 +67,6 @@ class Network():
                                                 'learningRate':learningRate,
                                                 'penalty':penalty})
     
-    def set_loss(self, value):
-        self._loss = value
-        for callback in self._observers:
-            callback(self._loss)
-            
-    def bind_to(self, callback):
-        self._observers.append(callback)
-                
     def trainNetwork(self,train_data,train_labels,valid_data,valid_labels,trigger,batchSize=20,epochs=100,learningRate=0.001,penalty=0.001):
         print("TRAINING STARTS")
         
@@ -113,18 +90,14 @@ class Network():
             if valid_error<min_valid_error:
                 min_valid_error=valid_error
                 epoch_kept=e
-                #params=lasagne.layers.get_all_param_values(self.last_layer)
-                #self.exportNetwork()
-                self.set_loss(train_err)
+
             f.write(str(e)+';'+str(train_err)+';'+str(valid_error)+'\n')
             f.close()
+            self._observers[0]()
             print("EPOCH : "+str(e)+'    LOSS: '+str(train_err)+'    ERROR: '+str(valid_error)+'    RATE: '+str(learningRate))
         print('END - EPOCH KEPT : '+str(epoch_kept))   
         
         return 1
-    
-    def getParamsValues(self):
-        return lasagne.layers.get_all_param_values(self.last_layer)
     
     def predict(self,test_data):
         batch_functions.normalize_batch(test_data)

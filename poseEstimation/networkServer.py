@@ -3,15 +3,13 @@
 '''
 import numpy as np
 import threading
-import time
-import requests
-import http.server
-import web
 import os
 from socketIO_client import SocketIO,BaseNamespace
 import network_conv_estimation
 import import2D
-import scipy.signal
+import theano
+import theano.tensor as T
+import lasagne
 
 class networkServer:
     
@@ -24,12 +22,10 @@ class networkServer:
         #NETWORK PARAMS
         self.id=0
         self.name='reseau_1'
-        '''
-        NETWORK CREATION...
-        '''
         
-        self.buildNetwork()
         self.importDataset()
+        self.buildNetwork()
+        
         #HANDLE MESSAGE FROM SERVER
         def handle_message_from_server(args):
             message=args[0]
@@ -59,11 +55,8 @@ class networkServer:
         print('SUCCESS:: NETWORK CLIENT STARTED')
         
         self.sendRequestToServer('getNewId',{'network_id': self.id,'network_name': self.name})
-        
-        
-        
-        
         self.socketio.wait()
+        
     def sendMessageToserver(self,name,data):
         self.socketio.emit('MESSAGE_FROM_NETWORK_TO_SERVER',
                            {'name':name,'data':data})
@@ -75,7 +68,11 @@ class networkServer:
                            {'client_socket_id':client_socket_id,'name':name,'data':data})        
     def buildNetwork(self):
         print('WAIT:: BUILDING NEURAL NETWORK...')
-        self.network=network_conv_estimation.Network(1,64,4)
+        self.network=network_conv_estimation.Network(self.TRAIN_DATASET[0].shape[1],
+                                                     self.TRAIN_DATASET[0].shape[2],
+                                                     self.TRAIN_DATASET[1].shape[1])
+        self.network._observers.append(self.newEpoch)
+        self.layers=lasagne.layers.get_all_layers(self.network.last_layer)
         print('SUCCESS:: NETWORK BUILT !')
         
     def handle_message_from_server(self,message):   
@@ -83,9 +80,6 @@ class networkServer:
             print('INFO:: NETWORK GOT THE ID '+message['network_id']+' FROM THE SERVER.')
             self.id=int(message['network_id']) 
             
-    def handle_message_from_client(self,request):
-        return 1
-    
     def handle_request_from_client(self,request):
         print('INFO:: HANDLING REQUEST FROM CLIENT ',request['name'])
         if request['name']=='setTrain':
@@ -97,13 +91,12 @@ class networkServer:
         if request['name']=='getNetworkArchitecture':
             self.sendMessageToClient('architecture',{'architecture':self.getNetworkArchitecture()},request['client_socket_id']);
         if request['name']=='getParams':
-            self.sendMessageToClient('params',{'params':self.getFakeParams(request['params'])},request['client_socket_id']);
+            self.sendMessageToClient('params',{'params':self.getParams(request['params'])},request['client_socket_id']);
         if request['name']=='getPipeline':
             self.sendMessageToClient('pipeline',{'pipeline':self.getPipeline(request['params'])},request['client_socket_id']);
-
-    def getNetwork(self):    
-        return self.network
-    
+        if request['name']=='getDatasetParams':
+            self.sendMessageToClient('datasetParams',{'datasetParams':self.getDatasetsParameters()},request['client_socket_id']);
+            
     def importDataset(self):
         print('WAIT:: IMPORTING DATASETS...')
         MODEL_PATH='/home/akatosh/DATASETS'
@@ -118,7 +111,6 @@ class networkServer:
         
     def trainNetwork(self):
         print('WAIT:: CREATING GPU TRAINING THREAD...')
-        self.network.bind_to(self.newEpoch)
         trigger = threading.Event()
         self.network.createTrainingThread(self.TRAIN_DATASET[0],self.TRAIN_DATASET[1],
                                           self.VALIDATION_DATASET[0],self.VALIDATION_DATASET[1],
@@ -138,41 +130,44 @@ class networkServer:
         print('SUCCESS:: NETWORK TESTED !')
         return error
         
-    def getLoss(self):
-        return self.network.loss
-    
-    def newEpoch(self,loss):
-        print("NEW EPOCH !!!",str(loss))
+    def newEpoch(self):
+        print("INFO:: NEW EPOCH")
         self.sendMessageToserver('newEpoch','')
         
     def getNetworkArchitecture(self):
-        params=np.asarray(self.network.getParamsValues())
         architecture=[]
-        for i in range(0,params.shape[0],2):
-            if len(params[i].shape)>2:
-                #CONVOLUTION LAYER
-                architecture.append(['CONV',params[i].shape])
+        print(self.layers)
+        for layer in self.layers:
+            if(str(layer.__class__).find('conv')>0):
+                architecture.append(['CONV',layer.W.get_value().shape])
+            elif(str(layer.__class__).find('dense')>0):
+                architecture.append(['FC',layer.W.get_value().shape])
+            elif(str(layer.__class__).find('pool')>0):
+                architecture.append(['POOL',0])
+            elif(str(layer.__class__).find('input')>0):
+                architecture.append(['INPUT',self.TRAIN_DATASET[0].shape[1:]])
             else:
-                architecture.append(['FC',params[i].shape])
+                architecture.append(['UNKNOWN',0])
         return architecture
     
-    def getFakeParams(self,parameters):
+    def getParams(self,parameters):
         if len(parameters)>0:
             paramsList=[]
             params=parameters['params']
-            layer=parameters['layer']
-            paramsFromNetwork=np.asarray(self.network.getParamsValues())
-            print(np.mean(paramsFromNetwork[0][0,0,:,:]))
+            layerIndex=parameters['layer']
+            layer=self.layers[layerIndex]
+            layerParams=layer.W.get_value()
+            print(np.mean(layerParams))
             if len(params)>0:
                 for i in range(len(params)):
                     print(params[i].split(':'))
                     param=params[i].split(':')
-                    if(len(paramsFromNetwork[layer*2].shape)>2):
+                    if str(layer.__class__).find('conv')>0:
                         #CONV LAYER
                         if len(param)>1:
-                            kernels=paramsFromNetwork[layer*2][int(param[0]):int(param[1]),0,:,:]
+                            kernels=layerParams[int(param[0]):int(param[1]),0,:,:]
                         else:
-                            kernels=paramsFromNetwork[layer*2][int(param[0]):int(param[0])+1,0,:,:]
+                            kernels=layerParams[int(param[0]):int(param[0])+1,0,:,:]
                         print(kernels.shape)
                         for k in range(kernels.shape[0]):
                             export=[]
@@ -181,12 +176,12 @@ class networkServer:
                                     export.append(kernels[k,i,j])
                             export=self.formatImage(export)
                             paramsList.append([int(param[0])+k,export])
-                    else:
+                    elif str(layer.__class__).find('dense')>0:
                         #FC LAYER ?
                         if len(param)>1:
-                            kernels=paramsFromNetwork[layer*2][:,int(param[0]):int(param[1])]
+                            kernels=layerParams[:,int(param[0]):int(param[1])]
                         else:
-                            kernels=paramsFromNetwork[layer*2][:,int(param[0]):int(param[0])+1]
+                            kernels=layerParams[:,int(param[0]):int(param[0])+1]
                         print(kernels.shape)
                         for k in range(kernels.shape[1]):
                             export=[]
@@ -195,7 +190,7 @@ class networkServer:
                             export=self.formatImage(export)
                             paramsList.append([int(param[0])+k,export])
                 result=dict()
-                result['layer']=layer
+                result['layer']=layerIndex
                 result['paramsList']=paramsList
                 return result
             else:
@@ -207,22 +202,26 @@ class networkServer:
         layerIndex=int(params['layer'])
         inputIndex=int(params['input'])
         inputImage=self.TRAIN_DATASET[0]
-        paramsFromNetwork=np.asarray(self.network.getParamsValues())
+        layer=self.layers[layerIndex]
+        input_var = T.tensor4('inputs')     
+        getOutput=theano.function([input_var],lasagne.layers.get_output(layer,input_var))
+        imgs=getOutput(inputImage[inputIndex:inputIndex+1])
+        
         export=[]
-        if len(paramsFromNetwork[layerIndex*2].shape)>2:
+        if str(layer.__class__).find('conv')>0 or str(layer.__class__).find('pool')>0 or str(layer.__class__).find('input')>0:
             #CONV
-            for k in range(paramsFromNetwork[layerIndex*2].shape[0]):
-                img=self.network.outputFunctions[layerIndex](inputImage[inputIndex:inputIndex+1])[0,k,:,:]
+            for k in range(imgs.shape[1]):
+                img=imgs[0,k,:,:]
                 res=[]
                 for i in range(img.shape[0]):
                     for j in range(img.shape[1]):
                         res.append(img[i,j])
                 res=self.formatImage(res)
                 export.append([k,res])
-        else:
+        
+        elif str(layer.__class__).find('dense')>0:
             #FC
-            img=self.network.outputFunctions[layerIndex](inputImage[inputIndex:inputIndex+1])
-            print(img.shape)
+            img=imgs
             if img.shape[1]>200:
                 for k in range(0,img.shape[1],200):
                     if k+200>img.shape[1]:
@@ -258,5 +257,23 @@ class networkServer:
             pixel*=255
             output.append(str(np.int(pixel)))
         return output
-            
+    
+    def getDatasetsParameters(self):
+        result=dict()
+        if self.TRAIN_DATASET:
+            set=dict()
+            set['name']='TRAINING'
+            set['params']=self.TRAIN_DATASET[0].shape
+            result['training']=set
+        if self.VALIDATION_DATASET:
+            set=dict()
+            set['name']='VALIDATION'
+            set['params']=self.VALIDATION_DATASET[0].shape
+            result['validation']=set  
+        if self.TEST_DATASET:
+            set=dict()
+            set['name']='TEST'
+            set['params']=self.TEST_DATASET[0].shape
+            result['test']=set
+        return result       
                 
